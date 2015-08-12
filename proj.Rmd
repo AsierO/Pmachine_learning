@@ -1,0 +1,102 @@
+---
+title: "Machine learning algorithm to predict activity quality from activity monitors"
+author: "Asier"
+date: "Friday, July 24, 2015"
+output: html_document
+---
+
+##Preprocessing data
+
+First, we begin by loading the libraries, including a performance enhancing library in order to reduce the computation time.
+
+```{r, echo=TRUE,}
+library(caret)
+library(rpart)
+#Working in two cores did not work for me
+#library(doParallel)
+#registerDoParallel(cores=2)
+library(randomForest)
+```
+
+Next, we load the two sets of data assuming that is already downloaded. We also set a seed for reproducibility purposes.
+
+```{r,echo=TRUE}
+testing = read.csv("pml-testing.csv")
+
+training = read.csv("pml-training.csv")
+
+set.seed(145)
+```
+
+The NA values play a mayor role in this calculation, an columns either have 0 NA values or almost all of them. This is the reason why we will erase the latter columns from our datasets. Note that the resulting amount of columns is different for each set.
+
+```{r}
+table(colSums(is.na(training)))
+
+table(colSums(is.na(testing)))
+
+training<-training[,colSums(is.na(training)) == 0]
+testing<-testing[,colSums(is.na(testing)) == 0]
+
+
+```
+
+We also get rid of columns that do not contribute to accelerometer measurements, for the sake of performance. After this code the amount of columns in both datasets are equal.
+
+```{r}
+classe <- training$classe
+trainera <- grepl("^X|timestamp|window", names(training))
+training <- training[, !trainera]
+traincle <- training[, sapply(training, is.numeric)]
+traincle$classe <- classe
+testera <- grepl("^X|timestamp|window", names(testing))
+testing <- testing[, !testera]
+testcle <- testing[, sapply(testing, is.numeric)]
+```
+
+Now we have to slice the data into a training data set (70%) and a validation data set (30%). We will use the first to train our model and the second to check the validity of our results. In other words, we will perform a cross-validation.
+
+```{r}
+inTrain = createDataPartition(traincle$classe, p=0.7, list=F)
+train01 = traincle[ inTrain,]
+test01 = traincle[-inTrain,]
+```
+##Model creation
+
+We will create our model using the random forests technique for improved accuracy but giving away speed and interpretability, risking overfitting. 
+
+```{r,eval=FALSE}
+modFit <- train(classe ~ ., data=train01, method="rf",prox=T )
+
+saveRDS(modFit, file="modFit.rds")
+```
+
+Due to the long time it requires to train this set we have saved modFit in a rds file that we proceed now to load instead of training again. 
+
+```{r}
+modFit = readRDS("modFit.rds")
+
+modFit
+```
+
+In order to check our model we will cross-validate it using the "test" data. Below we show several tables and values indicating the amount of correct and incorrect guesses.
+
+```{r}
+pretest<-predict(modFit, newdata = test01)
+test01$predRight<-pretest==test01$classe
+table(pretest,test01$classe)
+
+confusionMatrix(test01$classe, pretest)
+
+```
+
+We obtain a surprising accuracy of %99.47 with a very low p value and Kappa=0.9933. According to these values the random forest model is extremely good in prediction for this set. Note that as we are performing cross-validation overfitting should not be a concern, in principle.  
+
+##Prediction for testing data set
+
+Now we apply the tested model to the testing data that we downloaded in the first place. This gives us the result we were looking for.
+
+```{r}
+results<-predict(modFit, newdata = testcle)
+results
+```
